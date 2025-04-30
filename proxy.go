@@ -9,18 +9,23 @@ import (
 	"net/http/httputil"
 	"net/url"
 	"path"
-	"time"
 )
 
+// wrappedResponseWriter - embeds an httptest.ResponseRecorer,
+// which implements http.ResponseWriter.  This also implements
+// the Unwrap method use with ResponseController, so it can
+// be hijacked by the httputil.ReverseProxy handler.
 type wrappedResponseWriter struct {
 	*httptest.ResponseRecorder
 	orig     http.ResponseWriter
 	hijacked bool
 }
 
-func (wrr *wrappedResponseWriter) Unwrap() http.ResponseWriter {
-	wrr.hijacked = true
-	return wrr.orig
+// Unwrap - allow httputil.ReverseProxy to hijack our connection in
+// case of web sockets.
+func (wrw *wrappedResponseWriter) Unwrap() http.ResponseWriter {
+	wrw.hijacked = true
+	return wrw.orig
 }
 
 type MongooseProxy struct {
@@ -41,6 +46,7 @@ func (mp *MongooseProxy) Rewrite(pr *httputil.ProxyRequest) {
 	}
 }
 
+// ServeHTTP - implements http.Handler interface
 func (mp *MongooseProxy) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	// this should record the response unless it is hijacked, in which case
 	// the underlying w is unwrapped and the reverse proxy handles it.  this
@@ -71,9 +77,13 @@ func (mp *MongooseProxy) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		if err != nil {
 			log.Printf("error hijacking: %s", err)
 		}
+		return
 	}
 	res := wrw.Result()
-	res.Write(conn)
+	err = res.Write(conn)
+	if err != nil {
+		log.Printf("error writing response: %s", err)
+	}
 }
 
 func (mp *MongooseProxy) Hijack304(conn net.Conn) error {
@@ -101,9 +111,8 @@ func NewMongooseProxy(transport http.RoundTripper, upstrem string, length304 int
 		length304: length304,
 	}
 	mp.rp = &httputil.ReverseProxy{
-		Rewrite:       mp.Rewrite,
-		Transport:     transport,
-		FlushInterval: 10 * time.Millisecond,
+		Rewrite:   mp.Rewrite,
+		Transport: transport,
 	}
 	return mp, nil
 }
