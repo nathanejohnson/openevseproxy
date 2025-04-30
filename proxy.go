@@ -3,7 +3,6 @@ package main
 import (
 	"fmt"
 	"log"
-	"net"
 	"net/http"
 	"net/http/httptest"
 	"net/http/httputil"
@@ -11,7 +10,7 @@ import (
 	"path"
 )
 
-// wrappedResponseWriter - embeds an httptest.ResponseRecorer,
+// wrappedResponseWriter - embeds an httptest.ResponseRecorder,
 // which implements http.ResponseWriter.  This also implements
 // the Unwrap method use with ResponseController, so it can
 // be hijacked by the httputil.ReverseProxy handler.
@@ -73,30 +72,20 @@ func (mp *MongooseProxy) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	log.Printf("got code: %d\n", wrw.Code)
 
 	if wrw.Code == 304 {
-		err := mp.Hijack304(conn)
-		if err != nil {
-			log.Printf("error hijacking: %s", err)
-		}
-		return
+		tmpl := "HTTP/1.1 304 Not Modified\r\n" +
+			"Server: Mongoose/6.14\r\n" +
+			"Connection: close\r\n" +
+			"Content-Type: text/plain\r\n" +
+			"Content-Length: %d\r\n" +
+			"\r\n"
+
+		_, err = conn.Write([]byte(fmt.Sprintf(tmpl, mp.length304)))
+	} else {
+		err = wrw.Result().Write(conn)
 	}
-	res := wrw.Result()
-	err = res.Write(conn)
 	if err != nil {
 		log.Printf("error writing response: %s", err)
 	}
-}
-
-func (mp *MongooseProxy) Hijack304(conn net.Conn) error {
-	tmpl := "HTTP/1.1 304 Not Modified\r\n" +
-		"Server: Mongoose/6.14\r\n" +
-		"Connection: close\r\n" +
-		"Content-Type: text/plain\r\n" +
-		"Content-Length: %d\r\n" +
-		"\r\n"
-
-	conn.Write([]byte(fmt.Sprintf(tmpl, mp.length304)))
-	conn.Close()
-	return nil
 }
 
 func NewMongooseProxy(transport http.RoundTripper, upstrem string, length304 int) (*MongooseProxy, error) {
