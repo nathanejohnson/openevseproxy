@@ -28,11 +28,12 @@ func (wrw *wrappedResponseWriter) Unwrap() http.ResponseWriter {
 }
 
 type MongooseProxy struct {
-	scheme    string
-	address   string
-	path      string
-	rp        *httputil.ReverseProxy
-	length304 int
+	scheme      string
+	address     string
+	path        string
+	rp          *httputil.ReverseProxy
+	length304   int
+	bodyText304 string
 }
 
 func (mp *MongooseProxy) Rewrite(pr *httputil.ProxyRequest) {
@@ -77,9 +78,10 @@ func (mp *MongooseProxy) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 			"Connection: close\r\n" +
 			"Content-Type: text/plain\r\n" +
 			"Content-Length: %d\r\n" +
-			"\r\n"
+			"\r\n" +
+			"%s"
 
-		_, err = conn.Write([]byte(fmt.Sprintf(tmpl, mp.length304)))
+		_, err = conn.Write([]byte(fmt.Sprintf(tmpl, mp.length304, mp.bodyText304)))
 	} else {
 		err = wrw.Result().Write(conn)
 	}
@@ -88,16 +90,17 @@ func (mp *MongooseProxy) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	}
 }
 
-func NewMongooseProxy(transport http.RoundTripper, upstrem string, length304 int) (*MongooseProxy, error) {
+func NewMongooseProxy(transport http.RoundTripper, upstrem, bodyText304 string, length304 int) (*MongooseProxy, error) {
 	u, err := url.Parse(upstrem)
 	if err != nil {
 		return nil, fmt.Errorf("could not parse upstream error: %w", err)
 	}
 	mp := &MongooseProxy{
-		scheme:    u.Scheme,
-		address:   u.Host,
-		path:      u.Path,
-		length304: length304,
+		scheme:      u.Scheme,
+		address:     u.Host,
+		path:        u.Path,
+		length304:   length304,
+		bodyText304: bodyText304,
 	}
 	mp.rp = &httputil.ReverseProxy{
 		Rewrite:   mp.Rewrite,
